@@ -56,7 +56,14 @@ detect_terminal() {
   fi
 
   local parent_proc
-  parent_proc=$(ps -o comm= -p "$(ps -o ppid= -p $$)" 2>/dev/null | tr -d ' ')
+  if [[ -r "/proc/$$/stat" && -r "/proc/$(awk '{print $4}' /proc/$$/stat 2>/dev/null)/comm" ]]; then
+    local parent_pid
+    parent_pid=$(awk '{print $4}' /proc/$$/stat 2>/dev/null)
+    parent_proc=$(tr -d ' \n' < "/proc/$parent_pid/comm" 2>/dev/null || true)
+  elif command -v ps >/dev/null 2>&1; then
+    parent_proc=$(ps -o comm= -p "$(ps -o ppid= -p $$)" 2>/dev/null | tr -d ' ')
+  fi
+
   case "$parent_proc" in
     gnome-terminal*|gnome-terminal) printf 'gnome-terminal' ;; 
     gnome-console) printf 'gnome-console' ;; 
@@ -112,21 +119,21 @@ install_packages() {
   case "$(get_distro)" in
     ubuntu|debian|linuxmint|pop|elementary)
       sudo apt-get update -y
-      sudo apt-get install -y fish curl unzip fontconfig fzf git
+      sudo apt-get install -y fish curl unzip fontconfig fzf git procps
       ;;
     fedora|rhel|centos)
-      sudo dnf install -y fish curl unzip fontconfig fzf git
+      sudo dnf install -y fish curl unzip fontconfig fzf git procps-ng
       ;;
     arch|manjaro)
-      sudo pacman -Syu --noconfirm fish curl unzip fontconfig fzf git
+      sudo pacman -Syu --noconfirm fish curl unzip fontconfig fzf git procps-ng
       ;;
     opensuse|suse)
       sudo zypper refresh
-      sudo zypper install -y fish curl unzip fontconfig fzf git
+      sudo zypper install -y fish curl unzip fontconfig fzf git procps
       ;;
     alpine)
       sudo apk update
-      sudo apk add fish curl unzip fontconfig fzf git
+      sudo apk add fish curl unzip fontconfig fzf git procps
       ;;
     *)
       log "Instalá manualmente dependencias: fish curl unzip fontconfig fzf git"
@@ -207,21 +214,7 @@ choose_preset() {
       --layout=reverse \
       --border \
       --prompt='🚀 Preset: ' \
-      --preview "
-        PREVIEW_FILE=/tmp/starship-preview.toml
-        starship preset {} -o \$PREVIEW_FILE >/dev/null 2>&1
-
-        export STARSHIP_CONFIG=\$PREVIEW_FILE
-        export USER='$TARGET_USER'
-        export HOSTNAME=devbox
-
-        echo
-        starship prompt
-        echo
-        echo '❯ git status'
-        git status --short 2>/dev/null
-        echo
-      " \
+      --preview 'bash -lc "PREVIEW_FILE=/tmp/starship-preview.toml; starship preset {} -o \$PREVIEW_FILE >/dev/null 2>&1; STARSHIP_CONFIG=\$PREVIEW_FILE starship prompt"' \
       --preview-window=down:8:wrap \
       > "$tmp_out"
   )
