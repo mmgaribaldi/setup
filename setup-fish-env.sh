@@ -184,12 +184,13 @@ prepare_preview_env() {
 # =========================
 choose_preset() {
   if [[ -n "$CUSTOM_PRESET" ]]; then
-    if ! run_as_user starship preset -l | grep -qx "$CUSTOM_PRESET"; then
+    if [[ "$CUSTOM_PRESET" == "random" ]] || run_as_user starship preset -l | grep -qx "$CUSTOM_PRESET"; then
+      STARSHIP_PRESET="$CUSTOM_PRESET"
+      return
+    else
       log "Preset inválido: $CUSTOM_PRESET"
       exit 1
     fi
-    STARSHIP_PRESET="$CUSTOM_PRESET"
-    return
   fi
 
   if $NON_INTERACTIVE || ! has_tty; then
@@ -209,12 +210,12 @@ choose_preset() {
 
     export PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
-    starship preset -l | fzf \
+    (starship preset -l; echo "random") | fzf \
       --height=60% \
       --layout=reverse \
       --border \
       --prompt='🚀 Preset: ' \
-      --preview 'bash -lc "PREVIEW_FILE=/tmp/starship-preview.toml; starship preset {} -o \$PREVIEW_FILE >/dev/null 2>&1; STARSHIP_CONFIG=\$PREVIEW_FILE starship prompt"' \
+      --preview 'bash -c "if [[ {} == \"random\" ]]; then echo \"Generar preset aleatorio desde cero\"; else PREVIEW_FILE=/tmp/starship-preview.toml; starship preset {} -o \$PREVIEW_FILE >/dev/null 2>&1; STARSHIP_CONFIG=\$PREVIEW_FILE starship prompt; fi"' \
       --preview-window=down:8:wrap \
       > "$tmp_out"
   )
@@ -231,10 +232,235 @@ choose_preset() {
 # =========================
 # STARSHIP CONFIG
 # =========================
+generate_random_preset() {
+  local config_file="$HOME_DIR/.config/starship.toml"
+  mkdir -p "$HOME_DIR/.config"
+
+  # Arrays de opciones aleatorias
+  local colors=("red" "green" "blue" "yellow" "purple" "cyan" "magenta" "white" "black" "orange" "pink" "brown")
+  local symbols=("🚀" "🔥" "⚡" "🌟" "💎" "🎯" "🎨" "🎪" "🎭" "🎪" "🎸" "🎹" "🎺" "🎷" "🥁" "🎻")
+  local styles=("bold" "italic" "underline" "dimmed" "blink" "reverse" "hidden" "strikethrough")
+
+  # Función para elegir aleatoriamente
+  random_choice() {
+    local arr=("$@")
+    echo "${arr[$((RANDOM % ${#arr[@]}))]}"
+  }
+
+  # Generar configuración aleatoria
+  cat > "$config_file" <<EOF
+# Preset aleatorio generado automáticamente
+
+[username]
+style_user = "$(random_choice "${colors[@]}")"
+style_root = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$user](\$style) "
+disabled = false
+show_always = true
+
+[hostname]
+ssh_only = false
+format = "[$(random_choice "${symbols[@]}") \$hostname](\$style) "
+trim_at = "."
+style = "$(random_choice "${colors[@]}")"
+disabled = false
+
+[localip]
+ssh_only = true
+format = "[$(random_choice "${symbols[@]}") \$localipv4](\$style) "
+style = "$(random_choice "${colors[@]}")"
+disabled = false
+
+[shlvl]
+disabled = false
+format = "[$(random_choice "${symbols[@]}") \$shlvl](\$style) "
+style = "$(random_choice "${colors[@]}")"
+
+[singularity]
+disabled = false
+format = "[$(random_choice "${symbols[@]}") \$symbol\$container](\$style) "
+style = "$(random_choice "${colors[@]}")"
+
+[directory]
+read_only = "$(random_choice "${symbols[@]}")"
+read_only_style = "$(random_choice "${colors[@]}")"
+truncation_length = $((RANDOM % 10 + 1))
+truncation_symbol = "$(random_choice "${symbols[@]}")"
+home_symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$path](\$style) "
+disabled = false
+
+[git_branch]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$branch](\$style) "
+truncation_length = $((RANDOM % 20 + 10))
+truncation_symbol = "$(random_choice "${symbols[@]}")"
+only_attached = false
+disabled = false
+
+[git_commit]
+commit_hash_length = $((RANDOM % 8 + 4))
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$hash](\$style) "
+only_detached = true
+disabled = false
+tag_disabled = false
+tag_symbol = "$(random_choice "${symbols[@]}")"
+
+[git_state]
+rebase = "$(random_choice "${symbols[@]}")"
+merge = "$(random_choice "${symbols[@]}")"
+revert = "$(random_choice "${symbols[@]}")"
+cherry_pick = "$(random_choice "${symbols[@]}")"
+bisect = "$(random_choice "${symbols[@]}")"
+am = "$(random_choice "${symbols[@]}")"
+am_or_rebase = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$state(\$progress_current/\$progress_total)](\$style) "
+disabled = false
+
+[git_status]
+conflicted = "$(random_choice "${symbols[@]}")"
+ahead = "$(random_choice "${symbols[@]}")"
+behind = "$(random_choice "${symbols[@]}")"
+diverged = "$(random_choice "${symbols[@]}")"
+up_to_date = "$(random_choice "${symbols[@]}")"
+untracked = "$(random_choice "${symbols[@]}")"
+stashed = "$(random_choice "${symbols[@]}")"
+modified = "$(random_choice "${symbols[@]}")"
+staged = "$(random_choice "${symbols[@]}")"
+renamed = "$(random_choice "${symbols[@]}")"
+deleted = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$all_status\$ahead_behind](\$style) "
+disabled = false
+
+[python]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[nodejs]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[rust]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[golang]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[php]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[java]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[kotlin]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[haskell]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[scala]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[perl]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[package]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[lua]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$version](\$style) "
+disabled = false
+
+[memory_usage]
+symbol = "$(random_choice "${symbols[@]}")"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$ram](\$style) "
+disabled = false
+
+[battery]
+full_symbol = "$(random_choice "${symbols[@]}")"
+charging_symbol = "$(random_choice "${symbols[@]}")"
+discharging_symbol = "$(random_choice "${symbols[@]}")"
+unknown_symbol = "$(random_choice "${symbols[@]}")"
+empty_symbol = "$(random_choice "${symbols[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$symbol\$percentage](\$style) "
+style = "$(random_choice "${colors[@]}")"
+disabled = false
+
+[time]
+time_format = "%T"
+style = "$(random_choice "${colors[@]}")"
+format = "[$(random_choice "${symbols[@]}") \$time](\$style) "
+disabled = false
+
+[cmd_duration]
+min_time = $((RANDOM % 5000 + 1000))
+show_milliseconds = $((RANDOM % 2))
+format = "[$(random_choice "${symbols[@]}") \$duration](\$style) "
+style = "$(random_choice "${colors[@]}")"
+disabled = false
+
+[line_break]
+disabled = false
+
+[character]
+success_symbol = "[$(random_choice "${symbols[@]}")](green)"
+error_symbol = "[$(random_choice "${symbols[@]}")](red)"
+vimcmd_symbol = "[$(random_choice "${symbols[@]}")](green)"
+vimcmd_replace_one_symbol = "[$(random_choice "${symbols[@]}")](purple)"
+vimcmd_replace_symbol = "[$(random_choice "${symbols[@]}")](purple)"
+vimcmd_visual_symbol = "[$(random_choice "${symbols[@]}")](yellow)"
+EOF
+
+  chown "$TARGET_USER":"$TARGET_USER" "$config_file"
+}
+
 generate_starship_config() {
   mkdir -p "$HOME_DIR/.config"
-  run_as_user starship preset "$STARSHIP_PRESET" -o "$HOME_DIR/.config/starship.toml"
-  chown "$TARGET_USER":"$TARGET_USER" "$HOME_DIR/.config/starship.toml"
+  if [[ "$STARSHIP_PRESET" == "random" ]]; then
+    generate_random_preset
+  else
+    run_as_user starship preset "$STARSHIP_PRESET" -o "$HOME_DIR/.config/starship.toml"
+    chown "$TARGET_USER":"$TARGET_USER" "$HOME_DIR/.config/starship.toml"
+  fi
 }
 
 # =========================
