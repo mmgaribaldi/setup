@@ -180,61 +180,11 @@ prepare_preview_env() {
 }
 
 # =========================
-# PRESET SELECTOR (fzf 🔥)
-# =========================
-choose_preset() {
-  if [[ -n "$CUSTOM_PRESET" ]]; then
-    if [[ "$CUSTOM_PRESET" == "random" ]] || run_as_user starship preset -l | grep -qx "$CUSTOM_PRESET"; then
-      STARSHIP_PRESET="$CUSTOM_PRESET"
-      return
-    else
-      log "Preset inválido: $CUSTOM_PRESET"
-      exit 1
-    fi
-  fi
-
-  if $NON_INTERACTIVE || ! has_tty; then
-    log "No interactivo → usando preset default: $DEFAULT_PRESET"
-    STARSHIP_PRESET="$DEFAULT_PRESET"
-    return
-  fi
-
-  install_fzf_if_needed
-  prepare_preview_env
-
-  local tmp_out
-  tmp_out="$(mktemp /tmp/fzf-choice-XXXXXX)"
-
-  (
-    cd /tmp/starship-preview-env
-
-    export PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin"
-
-    (starship preset -l; echo "random") | fzf \
-      --height=60% \
-      --layout=reverse \
-      --border \
-      --prompt='🚀 Preset: ' \
-      --preview 'bash -c "if [[ {} == \"random\" ]]; then echo \"Generar preset aleatorio desde cero\"; else PREVIEW_FILE=/tmp/starship-preview.toml; starship preset {} -o \$PREVIEW_FILE >/dev/null 2>&1; STARSHIP_CONFIG=\$PREVIEW_FILE starship prompt; fi"' \
-      --preview-window=down:8:wrap \
-      > "$tmp_out"
-  )
-
-  if [[ -s "$tmp_out" ]]; then
-    STARSHIP_PRESET="$(cat "$tmp_out")"
-  else
-    STARSHIP_PRESET="$DEFAULT_PRESET"
-  fi
-
-  rm -f "$tmp_out"
-}
-
-# =========================
 # STARSHIP CONFIG
 # =========================
-generate_random_preset() {
-  local config_file="$HOME_DIR/.config/starship.toml"
-  mkdir -p "$HOME_DIR/.config"
+write_random_preset_file() {
+  local config_file="$1"
+  mkdir -p "$(dirname "$config_file")"
 
   # Arrays de opciones aleatorias
   local colors=("red" "green" "blue" "yellow" "purple" "cyan" "magenta" "white" "black" "orange" "pink" "brown")
@@ -248,6 +198,13 @@ generate_random_preset() {
   }
 
   # Generar configuración aleatoria
+  local show_milliseconds
+  if ((RANDOM % 2 == 0)); then
+    show_milliseconds=true
+  else
+    show_milliseconds=false
+  fi
+
   cat > "$config_file" <<EOF
 # Preset aleatorio generado automáticamente
 
@@ -422,7 +379,6 @@ discharging_symbol = "$(random_choice "${symbols[@]}")"
 unknown_symbol = "$(random_choice "${symbols[@]}")"
 empty_symbol = "$(random_choice "${symbols[@]}")"
 format = "[$(random_choice "${symbols[@]}") \$symbol\$percentage](\$style) "
-style = "$(random_choice "${colors[@]}")"
 disabled = false
 
 [time]
@@ -433,7 +389,7 @@ disabled = false
 
 [cmd_duration]
 min_time = $((RANDOM % 5000 + 1000))
-show_milliseconds = $((RANDOM % 2))
+show_milliseconds = $show_milliseconds
 format = "[$(random_choice "${symbols[@]}") \$duration](\$style) "
 style = "$(random_choice "${colors[@]}")"
 disabled = false
@@ -453,14 +409,109 @@ EOF
   chown "$TARGET_USER":"$TARGET_USER" "$config_file"
 }
 
+generate_random_preset() {
+  local config_file="$HOME_DIR/.config/starship.toml"
+  write_random_preset_file "$config_file"
+  chown "$TARGET_USER":"$TARGET_USER" "$config_file"
+}
+
 generate_starship_config() {
   mkdir -p "$HOME_DIR/.config"
   if [[ "$STARSHIP_PRESET" == "random" ]]; then
-    generate_random_preset
+    if [[ -n "${RANDOM_PRESET_FILE:-}" && -f "$RANDOM_PRESET_FILE" ]]; then
+      cp "$RANDOM_PRESET_FILE" "$HOME_DIR/.config/starship.toml"
+      chown "$TARGET_USER":"$TARGET_USER" "$HOME_DIR/.config/starship.toml"
+    else
+      generate_random_preset
+    fi
   else
     run_as_user starship preset "$STARSHIP_PRESET" -o "$HOME_DIR/.config/starship.toml"
     chown "$TARGET_USER":"$TARGET_USER" "$HOME_DIR/.config/starship.toml"
   fi
+}
+
+# =========================
+# PRESET SELECTOR (fzf 🔥)
+# =========================
+choose_preset() {
+  if [[ -n "$CUSTOM_PRESET" ]]; then
+    if [[ "$CUSTOM_PRESET" == "random" ]] || run_as_user starship preset -l | grep -qx "$CUSTOM_PRESET"; then
+      STARSHIP_PRESET="$CUSTOM_PRESET"
+      return
+    else
+      log "Preset inválido: $CUSTOM_PRESET"
+      exit 1
+    fi
+  fi
+
+  if $NON_INTERACTIVE || ! has_tty; then
+    log "No interactivo → usando preset default: $DEFAULT_PRESET"
+    STARSHIP_PRESET="$DEFAULT_PRESET"
+    return
+  fi
+
+  install_fzf_if_needed
+  prepare_preview_env
+
+  local tmp_out
+  tmp_out="$(mktemp /tmp/fzf-choice-XXXXXX)"
+  RANDOM_PRESET_FILE="/tmp/starship-random-preset.toml"
+  write_random_preset_file "$RANDOM_PRESET_FILE"
+
+  export TARGET_USER
+  export -f write_random_preset_file
+
+  local PREVIEW_SCRIPT="/tmp/starship-preview-script.sh"
+  cat > "$PREVIEW_SCRIPT" <<EOF
+#!/usr/bin/env bash
+preset="\$1"
+
+export PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+if [[ "\$preset" == "random - press r to regenerate" ]]; then
+  if [[ -f /tmp/starship-regenerating ]]; then
+    echo "regenerating..."
+  else
+    STARSHIP_CONFIG="$RANDOM_PRESET_FILE" starship prompt
+  fi
+else
+  preview_file="/tmp/starship-preview.toml"
+  starship preset "\$preset" -o "\$preview_file" >/dev/null 2>&1
+  STARSHIP_CONFIG="\$preview_file" starship prompt
+fi
+EOF
+  chmod +x "$PREVIEW_SCRIPT"
+
+  (
+    cd /tmp/starship-preview-env
+    export PATH="$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+    # ACÁ ESTABA EL BUG: Se usaba {q} (query del buscador) en vez de {} (ítem seleccionado)
+    local preview_cmd="\"$PREVIEW_SCRIPT\" {}"
+
+    local bind_cmd='r:execute-silent(bash -c "touch /tmp/starship-regenerating; write_random_preset_file \"'"$RANDOM_PRESET_FILE"'\" ; sleep 0.05; rm -f /tmp/starship-regenerating")+reload(bash -c "starship preset -l; echo \"random - press r to regenerate\"")'
+
+    (starship preset -l; echo "random - press r to regenerate") | fzf \
+      --height=60% \
+      --layout=reverse \
+      --border \
+      --prompt='🚀 Preset: ' \
+      --bind "$bind_cmd" \
+      --preview "$preview_cmd" \
+      --preview-window=down:8:wrap \
+      > "$tmp_out"
+  )
+
+  if [[ -s "$tmp_out" ]]; then
+    STARSHIP_PRESET="$(cat "$tmp_out")"
+    if [[ "$STARSHIP_PRESET" == "random - press r to regenerate" ]]; then
+      STARSHIP_PRESET="random"
+    fi
+  else
+    STARSHIP_PRESET="$DEFAULT_PRESET"
+  fi
+
+  rm -f "$tmp_out"
 }
 
 # =========================
