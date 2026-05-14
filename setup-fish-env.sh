@@ -17,6 +17,7 @@ STARSHIP_PRESET="$DEFAULT_PRESET"
 NON_INTERACTIVE=false
 CUSTOM_PRESET=""
 PACKAGES_INSTALLED=false
+SET_DEFAULT_SHELL=false
 
 # =========================
 # UTILS
@@ -94,6 +95,10 @@ parse_args() {
         NON_INTERACTIVE=true
         shift
         ;;
+      --set-default-shell)
+        SET_DEFAULT_SHELL=true
+        shift
+        ;;
       *)
         log "Unknown arg: $1"
         exit 1
@@ -152,7 +157,7 @@ install_fish() {
 install_starship() {
   if ! command -v starship >/dev/null; then
     log "Instalando starship..."
-    run_as_user bash -lc 'curl -fsSL https://starship.rs/install.sh | bash -s -- -y'
+    run_as_user sh -lc 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y'
   else
     log "starship ya instalado"
   fi
@@ -535,6 +540,51 @@ EOF
   chown -R "$TARGET_USER":"$TARGET_USER" "$HOME_DIR/.config/fish"
 }
 
+set_fish_as_login_shell() {
+  $SET_DEFAULT_SHELL || return 0
+
+  local fish_path
+  fish_path="$(command -v fish 2>/dev/null || true)"
+  if [[ -z "$fish_path" || ! -x "$fish_path" ]]; then
+    log "No se encontró un ejecutable fish; omitiendo cambio de shell de inicio."
+    return 0
+  fi
+
+  local fish_canonical
+  fish_canonical="$(readlink -f "$fish_path" 2>/dev/null || printf '%s' "$fish_path")"
+
+  if ! grep -qxF "$fish_path" /etc/shells 2>/dev/null; then
+    local line candidate
+    fish_path=""
+    while read -r line || [[ -n "$line" ]]; do
+      [[ -z "$line" || "$line" == \#* ]] && continue
+      candidate="$(readlink -f "$line" 2>/dev/null || printf '%s' "$line")"
+      if [[ "$candidate" == "$fish_canonical" ]]; then
+        fish_path="$line"
+        break
+      fi
+    done < /etc/shells
+  fi
+
+  if [[ -z "$fish_path" ]] || ! grep -qxF "$fish_path" /etc/shells 2>/dev/null; then
+    log "fish ($fish_canonical) no está en /etc/shells; agregalo como root o instalá fish desde los repos del sistema. Se omite el cambio de shell."
+    return 0
+  fi
+
+  local current_shell
+  current_shell="$(getent passwd "$TARGET_USER" | cut -d: -f7)"
+  local current_canonical
+  current_canonical="$(readlink -f "$current_shell" 2>/dev/null || printf '%s' "$current_shell")"
+  if [[ "$current_shell" == "$fish_path" || "$current_canonical" == "$fish_canonical" ]]; then
+    log "El shell de inicio de $TARGET_USER ya es fish."
+    return 0
+  fi
+
+  log "Cambiando shell de inicio de $TARGET_USER a fish ($fish_path)..."
+  sudo chsh -s "$fish_path" "$TARGET_USER"
+  log "Listo. Abrí una nueva sesión de inicio de sesión o terminal para usar fish por defecto."
+}
+
 # =========================
 # FONT
 # =========================
@@ -611,6 +661,7 @@ main() {
   choose_preset
   generate_starship_config
   configure_fish
+  set_fish_as_login_shell
   install_font
   configure_terminal_font
 
